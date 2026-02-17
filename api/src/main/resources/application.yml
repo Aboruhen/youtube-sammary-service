@@ -1,0 +1,31 @@
+server:
+  port: 8080
+
+# YouTube Summary Service
+# -----------------------
+# Provide either OpenAI API key (below) or switch to Ollama (see README).
+
+spring:
+  application:
+    name: youtube-summary-service
+
+# OpenAI (default). Set OPENAI_API_KEY env or here (do not commit keys).
+spring.ai.openai:
+  api-key: ${OPENAI_API_KEY:}
+  chat:
+    options:
+      model: gpt-4o-mini
+      temperature: 0.3
+
+# Optional: use Ollama instead. In pom.xml replace spring-ai-open-ai with spring-ai-ollama-spring-boot-starter
+# and uncomment:
+# spring.ai.ollama:
+#   base-url: http://localhost:11434
+#   chat:
+#     options:
+#       model: llama3.2
+
+logging:
+  level:
+    root: INFO
+    com.youtube.summary: DEBUG
