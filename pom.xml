@@ -29,8 +29,27 @@
 
     <properties>
         <java.version>21</java.version>
-        <spring-ai.version>1.0.0-M4</spring-ai.version>
+        <spring-ai.version>1.0.0-M6</spring-ai.version>
     </properties>
+
+    <!-- Use id other than "central" so corporate mirror does not redirect; ensures Spring AI can be resolved from Maven Central -->
+    <repositories>
+        <repository>
+            <id>maven-central-repo</id>
+            <name>Maven Central</name>
+            <url>https://repo.maven.apache.org/maven2</url>
+            <snapshots><enabled>false</enabled></snapshots>
+            <releases><enabled>true</enabled></releases>
+        </repository>
+    </repositories>
+    <pluginRepositories>
+        <pluginRepository>
+            <id>maven-central-repo</id>
+            <name>Maven Central</name>
+            <url>https://repo.maven.apache.org/maven2</url>
+            <snapshots><enabled>false</enabled></snapshots>
+        </pluginRepository>
+    </pluginRepositories>
 
     <dependencyManagement>
         <dependencies>

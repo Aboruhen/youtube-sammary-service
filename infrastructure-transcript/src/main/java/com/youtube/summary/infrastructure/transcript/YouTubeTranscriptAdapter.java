@@ -6,8 +6,8 @@ import com.youtube.summary.domain.VideoId;
 import com.youtube.summary.domain.port.TranscriptProvider;
 import io.github.thoroldvix.api.TranscriptContent;
 import io.github.thoroldvix.api.TranscriptList;
+import io.github.thoroldvix.api.TranscriptApiFactory;
 import io.github.thoroldvix.api.YoutubeTranscriptApi;
-import io.github.thoroldvix.internal.TranscriptApiFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,14 +42,14 @@ public class YouTubeTranscriptAdapter implements TranscriptProvider {
                 return Optional.empty();
             }
             TranscriptContent content = transcript.fetch();
-            if (content == null || content.getFragments() == null || content.getFragments().isEmpty()) {
+            if (content == null || content.getContent() == null || content.getContent().isEmpty()) {
                 return Optional.empty();
             }
             List<TranscriptSegment> segments = new ArrayList<>();
-            for (var fragment : content.getFragments()) {
+            for (var fragment : content.getContent()) {
                 segments.add(new TranscriptSegment(
                         fragment.getStart(),
-                        fragment.getDuration(),
+                        fragment.getDur(),
                         fragment.getText()
                 ));
             }

@@ -20,13 +20,18 @@ Minimal service that takes a YouTube video URL, fetches the transcript, generate
 ## Build & Run
 
 ```bash
-# Build all modules
+# Build all modules (use project settings if your Maven uses a corporate repo that times out)
+mvn -s .mvn/settings.xml clean install
+
+# Or without project settings (when Maven Central is reachable):
 mvn clean install
 
 # Run the API (set your OpenAI API key)
 export OPENAI_API_KEY=sk-...
 mvn -pl api spring-boot:run
 ```
+
+If `mvn clean install` fails due to dependency resolution (e.g. timeout to a corporate mirror), use **`mvn -s .mvn/settings.xml clean install`** so the build uses only Maven Central.
 
 ### Using Ollama (local LLM)
 
