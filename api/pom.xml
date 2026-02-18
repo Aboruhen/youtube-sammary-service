@@ -36,12 +36,13 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
-        <!-- Spring AI: OpenAI (or switch to spring-ai-ollama-spring-boot-starter for local Ollama) -->
+        <!-- Spring AI: Ollama (local LLM). Run: ollama pull llama3.2 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-openai-spring-boot-starter</artifactId>
+            <artifactId>spring-ai-ollama-spring-boot-starter</artifactId>
             <version>${spring-ai.version}</version>
         </dependency>
+
     </dependencies>
 
     <build>
