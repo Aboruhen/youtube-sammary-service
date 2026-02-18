@@ -13,6 +13,12 @@ spring.ai.ollama:
       model: llama3.2
       temperature: 0.3
 
+# Chunked fallback when no captions: yt-dlp + OpenAI Whisper. Requires yt-dlp and ffmpeg on PATH.
+youtube.summary.whisper.api-key: ${OPENAI_API_KEY:}
+youtube.summary.yt-dlp.path: yt-dlp
+youtube.summary.ffmpeg.path: ffmpeg
+# youtube.summary.chunked.temp-dir: ${java.io.tmpdir}/youtube-summary
+
 logging:
   level:
     root: INFO

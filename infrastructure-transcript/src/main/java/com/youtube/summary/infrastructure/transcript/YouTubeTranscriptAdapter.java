@@ -33,11 +33,14 @@ public class YouTubeTranscriptAdapter implements TranscriptProvider {
         this.transcriptApi = transcriptApi;
     }
 
+    /** Try English first, then common fallback languages when captions are not in en. */
+    private static final String[] LANGUAGE_FALLBACKS = { "en", "uk", "de", "es", "fr", "pt", "ru" };
+
     @Override
     public Optional<Transcript> fetch(VideoId videoId) {
         try {
             TranscriptList transcriptList = transcriptApi.listTranscripts(videoId.getValue());
-            var transcript = transcriptList.findTranscript();
+            var transcript = transcriptList.findTranscript(LANGUAGE_FALLBACKS);
             if (transcript == null) {
                 return Optional.empty();
             }

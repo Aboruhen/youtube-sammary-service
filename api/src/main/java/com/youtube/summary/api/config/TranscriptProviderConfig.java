@@ -3,15 +3,15 @@ package com.youtube.summary.api.config;
 import com.youtube.summary.domain.port.TranscriptProvider;
 import com.youtube.summary.infrastructure.fallback.ChunkedTranscriptProvider;
 import com.youtube.summary.infrastructure.transcript.YouTubeTranscriptAdapter;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 
-import java.util.List;
+import java.nio.file.Path;
 
 /**
- * Registers transcript providers in order: YouTube captions first, then chunked fallback.
+ * Registers transcript providers in order: YouTube captions first, then chunked fallback (yt-dlp + Whisper).
  */
 @Configuration
 public class TranscriptProviderConfig {
@@ -24,8 +24,15 @@ public class TranscriptProviderConfig {
 
     @Bean
     @Order(1)
-    @ConditionalOnMissingBean(name = "chunkedTranscriptProvider")
-    public TranscriptProvider chunkedTranscriptProvider() {
-        return new ChunkedTranscriptProvider();
+    public TranscriptProvider chunkedTranscriptProvider(
+            @Value("${youtube.summary.whisper.api-key:${OPENAI_API_KEY:}}") String openaiApiKey,
+            @Value("${youtube.summary.yt-dlp.path:yt-dlp}") String ytDlpPath,
+            @Value("${youtube.summary.ffmpeg.path:ffmpeg}") String ffmpegPath,
+            @Value("${youtube.summary.chunked.temp-dir:${java.io.tmpdir}/youtube-summary}") String tempDir) {
+        return ChunkedTranscriptProvider.createOptional(
+                openaiApiKey != null && !openaiApiKey.isBlank() ? openaiApiKey : null,
+                ytDlpPath,
+                ffmpegPath,
+                Path.of(tempDir));
     }
 }
