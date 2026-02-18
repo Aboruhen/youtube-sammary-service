@@ -2,6 +2,8 @@ package com.youtube.summary.api.config;
 
 import com.youtube.summary.domain.port.TranscriptProvider;
 import com.youtube.summary.infrastructure.fallback.ChunkedTranscriptProvider;
+import com.youtube.summary.infrastructure.fallback.OllamaTranscribeClient;
+import com.youtube.summary.infrastructure.fallback.TranscribeClient;
 import com.youtube.summary.infrastructure.transcript.YouTubeTranscriptAdapter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -11,7 +13,7 @@ import org.springframework.core.annotation.Order;
 import java.nio.file.Path;
 
 /**
- * Registers transcript providers in order: YouTube captions first, then chunked fallback (yt-dlp + Whisper).
+ * Registers transcript providers in order: YouTube captions first, then chunked fallback (yt-dlp + Ollama/local whisper).
  */
 @Configuration
 public class TranscriptProviderConfig {
@@ -25,14 +27,14 @@ public class TranscriptProviderConfig {
     @Bean
     @Order(1)
     public TranscriptProvider chunkedTranscriptProvider(
-            @Value("${youtube.summary.whisper.api-key:${OPENAI_API_KEY:}}") String openaiApiKey,
+            @Value("${youtube.summary.transcribe.command:whisper}") String transcribeCommand,
             @Value("${youtube.summary.yt-dlp.path:yt-dlp}") String ytDlpPath,
             @Value("${youtube.summary.ffmpeg.path:ffmpeg}") String ffmpegPath,
             @Value("${youtube.summary.chunked.temp-dir:${java.io.tmpdir}/youtube-summary}") String tempDir) {
-        return ChunkedTranscriptProvider.createOptional(
-                openaiApiKey != null && !openaiApiKey.isBlank() ? openaiApiKey : null,
-                ytDlpPath,
-                ffmpegPath,
-                Path.of(tempDir));
+        Path tempPath = Path.of(tempDir);
+        TranscribeClient transcribeClient = transcribeCommand != null && !transcribeCommand.isBlank()
+                ? new OllamaTranscribeClient(transcribeCommand, ffmpegPath, tempPath)
+                : null;
+        return ChunkedTranscriptProvider.createOptional(transcribeClient, ytDlpPath, ffmpegPath, tempPath);
     }
 }

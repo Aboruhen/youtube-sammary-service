@@ -19,43 +19,44 @@ import java.util.stream.Stream;
 
 /**
  * Fallback transcript provider when YouTube captions are not available.
- * Downloads audio via yt-dlp, transcribes via OpenAI Whisper API (optionally in chunks),
- * and returns a timed transcript.
+ * Downloads audio via yt-dlp, transcribes via a local client (e.g. Ollama/whisper CLI),
+ * optionally in chunks, and returns a timed transcript.
  * <p>
- * Requires: yt-dlp and ffmpeg on PATH (or configured paths), and OPENAI_API_KEY for Whisper.
+ * Requires: yt-dlp and ffmpeg on PATH (or configured paths), and a transcribe client
+ * (e.g. whisper CLI: {@code pip install openai-whisper}).
  * </p>
  */
 public class ChunkedTranscriptProvider implements TranscriptProvider {
 
     private static final Logger log = LoggerFactory.getLogger(ChunkedTranscriptProvider.class);
     private static final String VIDEO_BASE = "https://www.youtube.com/watch?v=";
-    private static final long WHISPER_MAX_BYTES = 24L * 1024 * 1024; // 24 MB
+    private static final long CHUNK_MAX_BYTES = 24L * 1024 * 1024; // 24 MB per chunk
     private static final int CHUNK_DURATION_SECONDS = 600; // 10 min chunks when splitting
     private static final long DOWNLOAD_TIMEOUT_SECONDS = 600; // 10 min
 
-    private final String openaiApiKey;
+    private final TranscribeClient transcribeClient;
     private final String ytDlpPath;
     private final String ffmpegPath;
     private final Path tempDir;
 
-    public ChunkedTranscriptProvider(String openaiApiKey, String ytDlpPath, String ffmpegPath, Path tempDir) {
-        this.openaiApiKey = openaiApiKey;
+    public ChunkedTranscriptProvider(TranscribeClient transcribeClient, String ytDlpPath, String ffmpegPath, Path tempDir) {
+        this.transcribeClient = transcribeClient;
         this.ytDlpPath = ytDlpPath != null && !ytDlpPath.isBlank() ? ytDlpPath : "yt-dlp";
         this.ffmpegPath = ffmpegPath != null && !ffmpegPath.isBlank() ? ffmpegPath : "ffmpeg";
         this.tempDir = tempDir != null ? tempDir : Path.of(System.getProperty("java.io.tmpdir"), "youtube-summary");
     }
 
     /**
-     * Creates a provider that will return empty (chunked processing disabled) when API key is missing.
+     * Creates a provider that will return empty (chunked processing disabled) when transcribe client is null.
      */
-    public static ChunkedTranscriptProvider createOptional(String openaiApiKey, String ytDlpPath, String ffmpegPath, Path tempDir) {
-        return new ChunkedTranscriptProvider(openaiApiKey, ytDlpPath, ffmpegPath, tempDir);
+    public static ChunkedTranscriptProvider createOptional(TranscribeClient transcribeClient, String ytDlpPath, String ffmpegPath, Path tempDir) {
+        return new ChunkedTranscriptProvider(transcribeClient, ytDlpPath, ffmpegPath, tempDir);
     }
 
     @Override
     public Optional<Transcript> fetch(VideoId videoId) {
-        if (openaiApiKey == null || openaiApiKey.isBlank()) {
-            log.debug("ChunkedTranscriptProvider: OpenAI API key not set, skipping");
+        if (transcribeClient == null) {
+            log.debug("ChunkedTranscriptProvider: no transcribe client, skipping");
             return Optional.empty();
         }
         Path workDir = null;
@@ -67,20 +68,19 @@ public class ChunkedTranscriptProvider implements TranscriptProvider {
             }
             List<TranscriptSegment> allSegments = new ArrayList<>();
             long size = Files.size(audioFile);
-            if (size <= WHISPER_MAX_BYTES) {
-                List<WhisperApiClient.WhisperSegment> segments = new WhisperApiClient(openaiApiKey).transcribe(audioFile);
-                for (WhisperApiClient.WhisperSegment s : segments) {
+            if (size <= CHUNK_MAX_BYTES) {
+                List<TranscribeClient.Segment> segments = transcribeClient.transcribe(audioFile);
+                for (TranscribeClient.Segment s : segments) {
                     allSegments.add(new TranscriptSegment(s.startSeconds(), s.durationSeconds(), s.text()));
                 }
             } else {
                 List<Path> chunks = splitAudio(audioFile, workDir);
-                WhisperApiClient client = new WhisperApiClient(openaiApiKey);
                 double offsetSeconds = 0;
                 for (Path chunk : chunks) {
                     try {
-                        List<WhisperApiClient.WhisperSegment> segments = client.transcribe(chunk);
+                        List<TranscribeClient.Segment> segments = transcribeClient.transcribe(chunk);
                         double chunkDuration = 0;
-                        for (WhisperApiClient.WhisperSegment s : segments) {
+                        for (TranscribeClient.Segment s : segments) {
                             double start = offsetSeconds + s.startSeconds();
                             allSegments.add(new TranscriptSegment(start, s.durationSeconds(), s.text()));
                             chunkDuration = Math.max(chunkDuration, s.startSeconds() + s.durationSeconds());
@@ -97,12 +97,12 @@ public class ChunkedTranscriptProvider implements TranscriptProvider {
                 }
             }
             if (allSegments.isEmpty()) {
-                log.warn("ChunkedTranscriptProvider: no segments from Whisper for video {}", videoId.getValue());
+                log.warn("ChunkedTranscriptProvider: no segments from transcribe client for video {}", videoId.getValue());
                 return Optional.empty();
             }
             allSegments.sort(Comparator.comparingDouble(TranscriptSegment::getStartSeconds));
             Transcript transcript = new Transcript(videoId, allSegments);
-            log.info("ChunkedTranscriptProvider: produced transcript for video {} ({} segments)", videoId.getValue(), allSegments.size());
+            log.info("ChunkedTranscriptProvider: produced transcript for video {} ({} segments) via Ollama/local transcribe", videoId.getValue(), allSegments.size());
             return Optional.of(transcript);
         } catch (Exception e) {
             log.warn("ChunkedTranscriptProvider: failed for video {}: {}", videoId.getValue(), e.getMessage());
