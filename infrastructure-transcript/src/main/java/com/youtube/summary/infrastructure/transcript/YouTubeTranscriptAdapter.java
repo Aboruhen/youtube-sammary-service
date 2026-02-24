@@ -56,6 +56,7 @@ public class YouTubeTranscriptAdapter implements TranscriptProvider {
                         fragment.getText()
                 ));
             }
+            log.info("TranscriptAdapter: fetched transcript for video {} ({} segments)", videoId.getValue(), segments);
             return Optional.of(new Transcript(videoId, segments));
         } catch (Exception e) {
             log.warn("Failed to fetch transcript for video {}: {}", videoId.getValue(), e.getMessage());

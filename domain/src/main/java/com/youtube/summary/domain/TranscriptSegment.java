@@ -47,4 +47,13 @@ public final class TranscriptSegment {
     public int hashCode() {
         return Objects.hash(startSeconds, durationSeconds, text);
     }
+
+    @Override
+    public String toString() {
+        return "TranscriptSegment{" +
+                "startSeconds=" + startSeconds +
+                ", durationSeconds=" + durationSeconds +
+                ", text='" + text + '\'' +
+                '}';
+    }
 }

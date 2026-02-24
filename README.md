@@ -39,6 +39,27 @@ If `mvn clean install` fails due to dependency resolution (e.g. timeout to a cor
 3. In `api/src/main/resources/application.yml`, configure Ollama and disable OpenAI (or remove OpenAI dependency)
 4. Run the API; no API key needed.
 
+### Docker Compose (Ollama + Whisper + API)
+
+The API image is built with [Jib](https://github.com/GoogleContainerTools/jib) (no Dockerfile). Run the full stack:
+
+```bash
+# Build the API image with Jib (from repo root)
+mvn -pl api compile jib:dockerBuild
+
+# Start all services (Ollama, Whisper, API)
+docker compose up -d
+
+# Pull the LLM model once
+docker compose exec ollama ollama pull llama3.2
+```
+
+- **API**: `http://localhost:8080` — Spring Boot app (image `youtube-summary-service-api:latest`).
+- **Ollama**: `http://localhost:11434` — used by the API for summary/agenda (Spring AI). In compose the API uses `http://ollama:11434`.
+- **Whisper**: `http://localhost:9000` — HTTP transcription API (Swagger at `/docs`). The app’s fallback currently uses the local **whisper CLI**; to use this container you’d need a TranscribeClient that calls the Whisper HTTP API.
+
+Alternatively, run only Ollama and Whisper with `docker compose up -d` and the API on the host: `mvn -pl api spring-boot:run` (use Ollama at localhost:11434).
+
 ## API
 
 **GET** `/api/summary?videoUrl=https://www.youtube.com/watch?v=VIDEO_ID`  
@@ -94,7 +115,7 @@ When a video has no captions (or none in the requested languages), the service u
 
 **Requirements:** Install **yt-dlp**, **ffmpeg**, and **whisper** (`pip install openai-whisper`). Set `youtube.summary.transcribe.command` to empty in config to disable chunked fallback; then videos without captions will return 404.
 
-The YouTube provider tries multiple languages (`en`, `uk`, `de`, `es`, `fr`, `pt`, `ru`), so videos with e.g. Ukrainian-only captions may work without using the chunked fallback.
+The YouTube provider tries multiple languages (`en`, `uk`, `de`, `es`, `fr`, `pt`), so videos with e.g. Ukrainian-only captions may work without using the chunked fallback.
 
 ## License
 

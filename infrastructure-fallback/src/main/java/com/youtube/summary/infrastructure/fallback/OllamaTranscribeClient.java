@@ -93,6 +93,7 @@ public class OllamaTranscribeClient implements TranscribeClient {
                 list.add(new Segment(start, end - start, text));
             }
         }
+        
         return list;
     }
 
