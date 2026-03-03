@@ -18,19 +18,20 @@ import java.util.regex.Pattern;
 public class SpringAiAgendaGenerator implements AgendaGenerator {
 
     private static final String SYSTEM_PROMPT = """
-            You are an agenda generator. The transcript includes timestamps like [0:00] [1:30]. Output ONLY lines in this format:
-            M:SS - Topic title
-            Use the same M:SS values that appear in the transcript (pick key timestamps for each topic). Examples:
-            0:00 - Introduction
-            1:30 - Setting up the project
-            5:20 - API design
-            One line per topic. Titles in English. No other text, no intro, no numbering prefix.
+            You are an agenda generator. The transcript includes timestamps like [0:00] [1:30].
+            Your job: group the content by context into logical sections (e.g. Introduction, Setup, Main topic 1, Demo, Conclusion).
+            Output ONLY lines in this format: M:SS - Section title
+            Rules:
+            - Group by context: one line per logical section, not every small subtopic. Typical video = 5-15 sections.
+            - Use the start timestamp of each section from the transcript [M:SS]. Pick the timestamp where that section begins.
+            - Section titles should be clear and high-level (e.g. "Introduction", "Configuring the API", "Testing and deployment").
+            - Titles in English. No other text, no intro, no numbering prefix.
             """;
 
-    /** Matches "M:SS - Title" or "M:S - Title" (1 or 2 digit seconds), dash or en-dash. */
-    private static final Pattern LINE_PATTERN = Pattern.compile("(\\d+):(\\d{1,2})\\s*[-–]\\s*(.+)");
-    /** Optional leading list numbering: "1. " or "1) " */
-    private static final Pattern LEADING_NUMBER = Pattern.compile("^\\s*\\d+[.)]\\s*");
+    /** Matches "M:SS - Title" or "M:S - Title"; flexible separators (dash, en-dash, em-dash, colon). */
+    private static final Pattern LINE_PATTERN = Pattern.compile("(\\d+):(\\d{1,2})\\s*[-–—:\\s]+\\s*(.+)");
+    /** Strip leading list style: "1. ", "1) ", "- ", "* " */
+    private static final Pattern LEADING_PREFIX = Pattern.compile("^\\s*(?:\\d+[.)]\\s*|[-*]\\s*)");
 
     private final ChatClient chatClient;
 
@@ -46,9 +47,9 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
         }
         String transcriptWithTimings = buildTranscriptWithTimings(transcript);
         String truncated = transcriptWithTimings.length() > 15000 ? transcriptWithTimings.substring(0, 15000) + "..." : transcriptWithTimings;
-        String userPrompt = "Using the timestamps in brackets [M:SS] from the transcript, list each main topic with its start time. " +
-                "One line per topic, format: M:SS - Topic title (e.g. 0:00 - Introduction). Use the exact timestamps from the transcript. " +
-                "Titles in English.\n\n" + truncated;
+        String userPrompt = "Group this transcript into logical sections by context. For each section output one line: M:SS - Section title. " +
+                "Use timestamps from the brackets [M:SS] in the transcript. Aim for 5-15 sections total; group related content together. " +
+                "Example: 0:00 - Introduction\n2:30 - Project setup\n5:00 - API design and implementation\n\nTranscript:\n\n" + truncated;
         String response = chatClient.prompt()
                 .system(SYSTEM_PROMPT)
                 .user(userPrompt)
@@ -56,7 +57,30 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
                 .content();
         String raw = response != null ? stripMarkdownCodeBlocks(response.trim()) : "";
         List<AgendaItem> items = parseAgendaLines(raw);
+        if (items.isEmpty() && !transcript.getSegments().isEmpty()) {
+            items = fallbackAgendaFromSegments(transcript);
+        } else if (!items.isEmpty()) {
+            items = mergeCloseItems(items, 45.0); // merge entries within 45 seconds
+        }
         return new Agenda(transcript.getVideoId(), items);
+    }
+
+    /** Merge agenda items that are very close in time; keep first timestamp, prefer first title. */
+    private static List<AgendaItem> mergeCloseItems(List<AgendaItem> items, double minGapSeconds) {
+        if (items.size() <= 1) return items;
+        List<AgendaItem> merged = new ArrayList<>();
+        AgendaItem current = items.get(0);
+        for (int i = 1; i < items.size(); i++) {
+            AgendaItem next = items.get(i);
+            if (next.getStartSeconds() - current.getStartSeconds() < minGapSeconds) {
+                // Merge: keep current start, use current title (section start)
+                continue;
+            }
+            merged.add(current);
+            current = next;
+        }
+        merged.add(current);
+        return merged;
     }
 
     private static String buildTranscriptWithTimings(Transcript transcript) {
@@ -95,19 +119,47 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
         }
         List<AgendaItem> items = new ArrayList<>();
         for (String line : response.split("\\r?\\n")) {
-            line = LEADING_NUMBER.matcher(line.trim()).replaceFirst("");
+            line = LEADING_PREFIX.matcher(line.trim()).replaceFirst("");
             line = line.trim();
             if (line.isEmpty()) continue;
             Matcher m = LINE_PATTERN.matcher(line);
             if (m.matches()) {
                 int minutes = Integer.parseInt(m.group(1));
                 int seconds = Integer.parseInt(m.group(2));
-                if (seconds > 59) continue; // invalid, skip
+                if (seconds > 59) continue;
                 String title = m.group(3).trim();
+                if (title.isEmpty()) title = "Topic";
                 double startSeconds = minutes * 60.0 + seconds;
                 items.add(new AgendaItem(title, startSeconds));
             }
         }
         return items;
+    }
+
+    /** Build agenda from segments when LLM returns nothing; group by time windows for context-like sections. */
+    private static List<AgendaItem> fallbackAgendaFromSegments(Transcript transcript) {
+        if (transcript.getSegments().isEmpty()) return List.of();
+        List<TranscriptSegment> segs = transcript.getSegments();
+        double windowSeconds = 120.0; // ~2 min per section for fewer, context-grouped items
+        List<AgendaItem> items = new ArrayList<>();
+        double windowStart = -windowSeconds - 1;
+        for (TranscriptSegment seg : segs) {
+            double start = seg.getStartSeconds();
+            if (start >= windowStart + windowSeconds || items.isEmpty()) {
+                windowStart = start;
+                String text = seg.getText().trim();
+                String title = text.length() > 60 ? text.substring(0, 57).trim() + "..." : text;
+                if (title.isEmpty()) title = "Section at " + formatTimestamp(start);
+                items.add(new AgendaItem(title, start));
+            }
+        }
+        return items;
+    }
+
+    private static String formatTimestamp(double startSeconds) {
+        int totalSec = (int) Math.floor(startSeconds);
+        int min = totalSec / 60;
+        int sec = totalSec % 60;
+        return min + ":" + String.format("%02d", sec);
     }
 }
