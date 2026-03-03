@@ -19,9 +19,9 @@ public class SpringAiSummaryGenerator implements SummaryGenerator {
             CRITICAL: You MUST respond entirely in English. If the transcript is in another language, first translate \
             it to English in your mind, then summarize that English version. Never output summary or tags in any other language.
             You are a software engineer. Given a video transcript, produce:
-            1. A short summary in English (2-4 paragraphs) with the main technical content and takeaways.
-            2. On the very last line of your response: exactly 5-10 software/tech hashtags in English, nothing else. \
-            Example: #Java #SpringBoot #API #Tutorial #SoftwareEngineering
+            1. A short summary in English (2-4 paragraphs) with the main software engineer and technology content and takeaways.
+            2. On the very last line of your response: exactly 5-10 software engineer software engineer and technology hashtags in English, nothing else. \
+            Example: #Java #SpringBoot #API #Tutorial #SoftwareEngineering #AI #LLM #ML
             Format: Write the summary paragraphs, then a blank line, then one line containing ONLY hashtags and spaces \
             (e.g. #Java #SpringBoot #API #Tutorial #SoftwareEngineering). No other text or labels. The last line MUST \
             be hashtags so the system can parse it.
@@ -41,8 +41,8 @@ public class SpringAiSummaryGenerator implements SummaryGenerator {
         }
         String truncated = text.length() > 12000 ? text.substring(0, 12000) + "..." : text;
         String userPrompt = "Respond ONLY in English. Summarize this transcript in 2-4 paragraphs (translate to " +
-                "English first if needed). End your response with a single line of 5-10 #hashtags, software/tech " +
-                "topics only, e.g. #Java #API #Tutorial.\n\nTranscript:\n\n" + truncated;
+                "English first if needed). End your response with a single line of 5-10 #hashtags, software engineer and technology " +
+                "topics only, e.g. #Java #API #Tutorial #SoftwareEngineering #AI #LLM #ML.\n\nTranscript:\n\n" + truncated;
         String response = chatClient.prompt()
                 .system(SYSTEM_PROMPT)
                 .user(userPrompt)
@@ -67,7 +67,8 @@ public class SpringAiSummaryGenerator implements SummaryGenerator {
         return s;
     }
 
-    private static final Pattern HASHTAG = Pattern.compile("#\\w+");
+    // \p{L} = any Unicode letter (so Cyrillic/Ukrainian hashtags are matched too)
+    private static final Pattern HASHTAG = Pattern.compile("#[\\p{L}\\p{N}_]+");
 
     static Summary parseSummaryAndTags(com.youtube.summary.domain.VideoId videoId, String raw) {
         if (raw.isEmpty()) {
