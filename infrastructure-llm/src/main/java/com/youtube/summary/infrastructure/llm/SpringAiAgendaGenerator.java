@@ -18,17 +18,19 @@ import java.util.regex.Pattern;
 public class SpringAiAgendaGenerator implements AgendaGenerator {
 
     private static final String SYSTEM_PROMPT = """
-            MANDATORY: All section titles MUST be in English. Use only generic, high-level titles.
+            MANDATORY: All section titles MUST be in English only. If the transcript is in another language, \
+            translate the meaning of each section into English for the title.
             You are an agenda generator. The transcript includes timestamps like [0:00] [1:30].
-            Your job: group the content by context into logical sections and label them with GENERIC titles only.
+            Your job: group the content by context into logical sections and give each section a TOPIC-style title \
+            that describes what that section is about, in English.
             Output ONLY lines in this format: M:SS - Section title
             Rules:
             - Group by context: one line per logical section. Typical video = 5-15 sections.
             - Use the start timestamp of each section from the transcript [M:SS].
-            - Use GENERIC section titles only, e.g.: Introduction, Overview, Background, Main Topic, Key Points, \
-            Demonstration, Example, Implementation, Configuration, Summary, Conclusion, Q&A, Next Steps. \
-            Do NOT use long or specific phrases; keep titles short and generic (2-4 words).
-            - No other text, no intro, no numbering prefix.
+            - Each title must be in English: a short TOPIC that captures the context (e.g. "Setting up the project", \
+            "How authentication works", "Configuring the database"). Be specific to the content, not generic.
+            - Do NOT use generic labels like "Part 1", "Part 2", "Main Topic", or "Section 3". Never use "Part" with a number.
+            - Keep titles concise but descriptive (roughly 3-8 words). No intro, no numbering prefix.
             """;
 
     /** Matches "M:SS - Title" or "M:S - Title"; flexible separators (dash, en-dash, em-dash, colon). */
@@ -50,9 +52,11 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
         }
         String transcriptWithTimings = buildTranscriptWithTimings(transcript);
         String truncated = transcriptWithTimings.length() > 15000 ? transcriptWithTimings.substring(0, 15000) + "..." : transcriptWithTimings;
-        String userPrompt = "Group this transcript into logical sections. For each section output one line: M:SS - Section title. " +
-                "Use timestamps from the brackets [M:SS]. Use only generic titles (e.g. Introduction, Overview, Main Topic, Demo, Conclusion). " +
-                "Aim for 5-15 sections. Example:\n0:00 - Introduction\n2:30 - Overview\n5:00 - Main Topic\n12:00 - Demonstration\n18:00 - Conclusion\n\nTranscript:\n\n" + truncated;
+        String userPrompt = "Output the agenda in English only: if the transcript is not in English, translate each section title to English. " +
+                "Group this transcript into logical sections. For each section output one line: M:SS - Section title. " +
+                "Use timestamps from the brackets [M:SS]. Each title must be a topic in English that describes that section's content (e.g. 'Installing dependencies', 'Explaining the algorithm'). " +
+                "Do not use 'Part 1', 'Part 2' or other generic labels. Aim for 5-15 sections. " +
+                "Example:\n0:00 - Introduction to the project\n2:30 - Installing and configuring the tools\n5:00 - How the API handles requests\n12:00 - Running the demo\n18:00 - Summary and next steps\n\nTranscript:\n\n" + truncated;
         String response = chatClient.prompt()
                 .system(SYSTEM_PROMPT)
                 .user(userPrompt)
@@ -161,15 +165,17 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
         return items;
     }
 
-    private static final String[] GENERIC_FALLBACK_TITLES = {
-            "Introduction", "Overview", "Main Topic", "Key Points", "Details", "Summary", "Conclusion"
+    /** English-only fallback titles when LLM returns nothing (segment text may be in any language). */
+    private static final String[] FALLBACK_ENGLISH_TITLES = {
+            "Introduction", "Overview", "Main content", "Key points", "Details and examples",
+            "Implementation", "Summary", "Conclusion"
     };
 
-    /** Build agenda from segments when LLM returns nothing; group by time windows with generic titles. */
+    /** Build agenda from segments when LLM returns nothing; use English titles only. */
     private static List<AgendaItem> fallbackAgendaFromSegments(Transcript transcript) {
         if (transcript.getSegments().isEmpty()) return List.of();
         List<TranscriptSegment> segs = transcript.getSegments();
-        double windowSeconds = 120.0; // ~2 min per section for fewer, context-grouped items
+        double windowSeconds = 120.0; // ~2 min per section
         double videoEnd = segs.get(segs.size() - 1).getEndSeconds();
         List<AgendaItem> items = new ArrayList<>();
         double windowStart = -windowSeconds - 1;
@@ -177,11 +183,8 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
             double start = seg.getStartSeconds();
             if (start >= windowStart + windowSeconds || items.isEmpty()) {
                 windowStart = start;
-                String title = GENERIC_FALLBACK_TITLES[items.size() % GENERIC_FALLBACK_TITLES.length];
-                if (items.size() >= GENERIC_FALLBACK_TITLES.length) {
-                    title = "Part " + (items.size() + 1);
-                }
-                double end = Math.max(start, videoEnd); // will be fixed by assignEndTimes when next section exists
+                String title = FALLBACK_ENGLISH_TITLES[items.size() % FALLBACK_ENGLISH_TITLES.length];
+                double end = Math.max(start, videoEnd);
                 items.add(new AgendaItem(title, start, end));
             }
         }
