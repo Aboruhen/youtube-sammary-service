@@ -49,8 +49,8 @@ public class SummaryController {
         return ResponseEntity.ok(Map.of(
                 "videoId", r.getTranscript().getVideoId().getValue(),
                 "summary", r.getSummary().getText(),
-                "agenda", toAgendaDto(r.getAgenda().getItems()),
-                "usedFallback", r.isUsedFallback()
+                "tags", r.getSummary().getTags(),
+                "agenda", toAgendaDto(r.getAgenda().getItems())
         ));
     }
 

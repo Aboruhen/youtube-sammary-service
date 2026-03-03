@@ -5,12 +5,15 @@ spring:
   application:
     name: youtube-summary-service
 
-# Ollama (local LLM). Install: https://ollama.ai — then: ollama pull llama3.2
+# Ollama (local LLM). Spring AI default is "mistral" — set model and pull it: ollama pull <model>
+# e.g. ollama pull llama3.2  or  ollama pull mistral
 spring.ai.ollama:
   base-url: http://localhost:11434
   chat:
+    model: llama3.2
     options:
-      # model: llama3.2
+      model: llama3.2
+      # model: granite3.2:8b
       temperature: 0.3
 
 # Chunked fallback when no captions: yt-dlp + local transcribe (Ollama stack). Requires yt-dlp, ffmpeg, and whisper CLI.

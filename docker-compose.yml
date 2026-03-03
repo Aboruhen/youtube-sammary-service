@@ -1,12 +1,13 @@
 # Ollama (LLM), Whisper (ASR), and the YouTube Summary API (Jib-built image).
 # Build the API image with Jib:  mvn -pl api compile jib:dockerBuild
 # Then:  docker compose up -d
-# Ollama pulls llama3.2 on first start. To use another model: set SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL and run: docker compose exec ollama ollama pull <model>
+# Ollama pulls granite3.2:8b on first start. To use another model: set SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL and run: docker compose exec ollama ollama pull <model>
 
 services:
   api:
-    image: youtube-summary-service-api:1.0.0-SNAPSHOT
-    # platform: linux/arm64
+    image: youtube-summary-service-api:latest
+    pull_policy: never
+    platform: linux/arm64
     # Build with Jib (no Dockerfile):  mvn -pl api compile jib:dockerBuild
     container_name: youtube-summary-api
     ports:
@@ -15,6 +16,7 @@ services:
       SPRING_AI_OLLAMA_BASE_URL: http://ollama:11434
       # Override default "mistral" so the app uses a model we pull in Ollama
       SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL: llama3.2
+      # SPRING_AI_OLLAMA_CHAT_OPTIONS_MODEL: granite3.2:8b
       # Optional: point transcribe to Whisper service when HTTP client is implemented
       # YOUTUBE_SUMMARY_WHISPER_URL: http://whisper:9000
     depends_on:
@@ -23,15 +25,11 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    platform: linux/arm64
     container_name: ollama
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    # Start server, wait for it to be ready, pull model, then keep container alive (wait on server process).
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["ollama serve & sleep 5 && ollama pull llama3.2 && wait"]
     restart: unless-stopped
     # Optional: GPU (NVIDIA). Uncomment and use image with GPU support.
     # deploy:
@@ -52,8 +50,12 @@ services:
       ASR_ENGINE: openai_whisper
       # Model size: tiny, base, small, medium, large-v2, large-v3 (larger = better quality, more RAM)
       ASR_MODEL: base
+      # ASR_ENGINE: faster_whisper
+      # Ukrainian fine-tuned Whisper large-v2 (Hugging Face); must be CTranslate2 format for faster_whisper
+      # ASR_MODEL: anuragshas/whisper-large-v2-uk
     restart: unless-stopped
     # Optional: GPU. Use image tag :latest-gpu and add deploy.resources.reservations for nvidia.
 
 volumes:
   ollama_data:
+  whisper_cache:

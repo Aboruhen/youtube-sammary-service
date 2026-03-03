@@ -34,7 +34,7 @@ If `mvn clean install` fails due to dependency resolution (e.g. timeout to a cor
 
 ### Using Ollama (local LLM)
 
-1. Install [Ollama](https://ollama.ai) and run e.g. `ollama pull llama3.2`
+1. Install [Ollama](https://ollama.ai) and run e.g. `ollama pull granite3.2:8b`
 2. In `api/pom.xml`, replace `spring-ai-open-ai-spring-boot-starter` with `spring-ai-ollama-spring-boot-starter`
 3. In `api/src/main/resources/application.yml`, configure Ollama and disable OpenAI (or remove OpenAI dependency)
 4. Run the API; no API key needed.
@@ -51,7 +51,7 @@ mvn -pl api compile jib:dockerBuild
 docker compose up -d
 
 # Pull the LLM model once
-docker compose exec ollama ollama pull llama3.2
+docker compose exec ollama ollama pull granite3.2:8b
 ```
 
 - **API**: `http://localhost:8080` — Spring Boot app (image `youtube-summary-service-api:latest`).
