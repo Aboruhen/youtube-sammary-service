@@ -12,10 +12,11 @@ import java.util.List;
 
 /**
  * Agenda generator using Spring AI. Asks LLM for topic titles only; timings are approximated from video duration.
+ * Prompt text is injected (e.g. from application.yml) so it can be configured externally.
  */
 public class SpringAiAgendaGenerator implements AgendaGenerator {
 
-    private static final String SYSTEM_PROMPT = """
+    private static final String DEFAULT_SYSTEM = """
             MANDATORY: All section titles MUST be in English only. If the transcript is in another language, \
             translate the meaning of each section into English for the title.
             You are an agenda generator. The transcript includes timestamps like [0:00] [1:30].
@@ -30,14 +31,28 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
             - Do NOT use generic labels like "Part 1", "Part 2", "Main Topic", or "Section 3". Never use "Part" with a number.
             - Keep titles concise but descriptive (roughly 3-8 words). No intro, no numbering prefix.
             """;
+    private static final String DEFAULT_USER_PREFIX = "Respond ONLY in English. Output the agenda in English only: if the transcript is not in English, translate each section title to English. "
+            + "Group this transcript into logical sections. For each section output one line: M:SS - Section title. "
+            + "Use timestamps from the brackets [M:SS]. Each title must be a topic in English that describes that section's content (e.g. 'Installing dependencies', 'Explaining the algorithm'). "
+            + "Just a list of topics about the transcripts, no other text. No examples, no conclusion, no explanation. "
+            + "Do not use 'Part 1', 'Part 2' or other generic labels. Aim for 5-15 sections. "
+            + "Example:\n0:00 - Introduction to the project\n2:30 - Installing and configuring the tools\n5:00 - How the API handles requests\n12:00 - Running the demo\n18:00 - Summary and next steps";
 
     /** Strip leading list style: "1. ", "1) ", "- ", "* ", or "M:SS - " (timestamp prefix). */
     private static final String LEADING_PREFIX_REGEX = "^\\s*(?:\\d+[.)]\\s*|[-*]\\s*|\\d{1,5}:\\d{1,2}(?::\\d{1,2})?\\s*[-–—:\\s]*)";
 
     private final ChatClient chatClient;
+    private final String systemPrompt;
+    private final String userPrefix;
 
     public SpringAiAgendaGenerator(ChatClient chatClient) {
+        this(chatClient, null, null);
+    }
+
+    public SpringAiAgendaGenerator(ChatClient chatClient, String systemPrompt, String userPrefix) {
         this.chatClient = chatClient;
+        this.systemPrompt = (systemPrompt != null && !systemPrompt.isBlank()) ? systemPrompt : DEFAULT_SYSTEM;
+        this.userPrefix = (userPrefix != null && !userPrefix.isBlank()) ? userPrefix : DEFAULT_USER_PREFIX;
     }
 
     @Override
@@ -48,13 +63,9 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
         }
         String transcriptWithTimings = buildTranscriptWithTimings(transcript);
         String truncated = transcriptWithTimings.length() > 15000 ? transcriptWithTimings.substring(0, 15000) + "..." : transcriptWithTimings;
-        String userPrompt = "Output the agenda in English only: if the transcript is not in English, translate each section title to English. " +
-                "Group this transcript into logical sections. For each section output one line: M:SS - Section title. " +
-                "Use timestamps from the brackets [M:SS]. Each title must be a topic in English that describes that section's content (e.g. 'Installing dependencies', 'Explaining the algorithm'). " +
-                "Do not use 'Part 1', 'Part 2' or other generic labels. Aim for 5-15 sections. " +
-                "Example:\n0:00 - Introduction to the project\n2:30 - Installing and configuring the tools\n5:00 - How the API handles requests\n12:00 - Running the demo\n18:00 - Summary and next steps\n\nTranscript:\n\n" + truncated;
+        String userPrompt = userPrefix + "\n\nTranscript:\n\n" + truncated;
         String response = chatClient.prompt()
-                .system(SYSTEM_PROMPT)
+                .system(systemPrompt)
                 .user(userPrompt)
                 .call()
                 .content();

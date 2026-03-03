@@ -12,12 +12,14 @@ import java.util.List;
 
 /**
  * Translates a transcript to English using the LLM before summary/agenda generation.
+ * Prompt text is injected (e.g. from application.yml) so it can be configured externally.
+ * User prompt may contain placeholder {count} for the number of lines.
  */
 public class SpringAiTranscriptTranslator implements TranscriptTranslator {
 
     private static final Logger log = LoggerFactory.getLogger(SpringAiTranscriptTranslator.class);
 
-    private static final String SYSTEM_PROMPT = """
+    private static final String DEFAULT_SYSTEM = """
             You are a translator. Translate the given transcript lines to English.
             Rules:
             - Output ONLY the translated lines, one line per line of input.
@@ -25,16 +27,26 @@ public class SpringAiTranscriptTranslator implements TranscriptTranslator {
             - Keep exactly the same number of lines as the input.
             - If a line is already in English, output it unchanged.
             - Preserve meaning and tone; this is typically technical or educational content.
+            - Ignore and remove code blocks and markdown formatting.
             """;
+    private static final String DEFAULT_USER_PREFIX = "Translate these lines to English. Output exactly {count} lines, one translation per line, no numbers or labels:";
 
     /** Max segments per LLM call so the model returns one line per line (avoids summarization). */
     private static final int CHUNK_SIZE = 80;
     private static final int MAX_CHUNK_CHARS = 15_000;
 
     private final ChatClient chatClient;
+    private final String systemPrompt;
+    private final String userPrefix;
 
     public SpringAiTranscriptTranslator(ChatClient chatClient) {
+        this(chatClient, null, null);
+    }
+
+    public SpringAiTranscriptTranslator(ChatClient chatClient, String systemPrompt, String userPrefix) {
         this.chatClient = chatClient;
+        this.systemPrompt = (systemPrompt != null && !systemPrompt.isBlank()) ? systemPrompt : DEFAULT_SYSTEM;
+        this.userPrefix = (userPrefix != null && !userPrefix.isBlank()) ? userPrefix : DEFAULT_USER_PREFIX;
     }
 
     @Override
@@ -52,11 +64,12 @@ public class SpringAiTranscriptTranslator implements TranscriptTranslator {
             if (numbered.length() > MAX_CHUNK_CHARS) {
                 numbered = numbered.substring(0, MAX_CHUNK_CHARS) + "\n... [truncated]";
             }
-            String userPrompt = "Translate these lines to English. Output exactly " + chunk.size() + " lines, one translation per line, no numbers or labels:\n\n" + numbered;
+            String prefix = userPrefix.replace("{count}", String.valueOf(chunk.size()));
+            String userPrompt = prefix + "\n\n" + numbered;
             String response;
             try {
                 response = chatClient.prompt()
-                        .system(SYSTEM_PROMPT)
+                        .system(systemPrompt)
                         .user(userPrompt)
                         .call()
                         .content();
@@ -72,13 +85,10 @@ public class SpringAiTranscriptTranslator implements TranscriptTranslator {
             }
             String raw = stripMarkdownCodeBlocks(response.trim());
             List<String> chunkLines = parseLines(raw);
-            // if (chunkLines.size() != chunk.size()) {
-                // log.info("!!!!!!Translation line count mismatch trabslated {}\\n, using original",
-                // chunkLines);
-                // log.warn("Translation line count mismatch for video {} chunk {}-{} (expected {}, got {}), using original",
-                        // transcript.getVideoId().getValue(), offset, end, chunk.size(), chunkLines.size());
-                // return transcript;
-            // }
+            if (chunkLines.size() != chunk.size()) {
+                log.warn("Translation line count mismatch for video {} chunk {}-{} (expected {}, got {}), using original",
+                        transcript.getVideoId().getValue(), offset, end, chunk.size(), chunkLines.size());   
+            }
             allTranslatedLines.addAll(chunkLines);
         }
 
