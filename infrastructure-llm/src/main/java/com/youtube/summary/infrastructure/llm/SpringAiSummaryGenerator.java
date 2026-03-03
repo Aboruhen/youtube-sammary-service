@@ -22,8 +22,9 @@ public class SpringAiSummaryGenerator implements SummaryGenerator {
             1. A short summary in English (2-4 paragraphs) with the main technical content and takeaways.
             2. On the very last line of your response: exactly 5-10 software/tech hashtags in English, nothing else. \
             Example: #Java #SpringBoot #API #Tutorial #SoftwareEngineering
-            Format: Write the summary paragraphs, then a blank line, then one line of hashtags (e.g. #Tag1 #Tag2 #Tag3). \
-            No other text, no headings, no "Summary:" or "Tags:" labels. Your last line MUST be the hashtag line.
+            Format: Write the summary paragraphs, then a blank line, then one line containing ONLY hashtags and spaces \
+            (e.g. #Java #SpringBoot #API #Tutorial #SoftwareEngineering). No other text or labels. The last line MUST \
+            be hashtags so the system can parse it.
             """;
 
     private final ChatClient chatClient;
@@ -74,31 +75,33 @@ public class SpringAiSummaryGenerator implements SummaryGenerator {
         }
         String[] lines = raw.split("\\r?\\n");
         List<String> tags = new ArrayList<>();
-        int lastTagLineIndex = -1;
+        int firstTagLineIndex = -1;
         for (int i = lines.length - 1; i >= 0; i--) {
-            String line = lines[i].trim();
-            if (line.contains("#")) {
-                Matcher m = HASHTAG.matcher(line);
+            if (lines[i].trim().contains("#")) {
+                firstTagLineIndex = i;
+            } else if (firstTagLineIndex >= 0) {
+                break;
+            }
+        }
+        if (firstTagLineIndex >= 0) {
+            for (int i = firstTagLineIndex; i < lines.length; i++) {
+                Matcher m = HASHTAG.matcher(lines[i]);
                 while (m.find()) {
-                    tags.add(m.group());
-                }
-                if (!tags.isEmpty()) {
-                    lastTagLineIndex = i;
-                    break;
+                    String tag = m.group();
+                    if (!tags.contains(tag)) tags.add(tag);
                 }
             }
         }
         String summaryText;
-        if (lastTagLineIndex >= 0) {
+        if (firstTagLineIndex >= 0) {
             StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < lastTagLineIndex; i++) {
+            for (int i = 0; i < firstTagLineIndex; i++) {
                 if (sb.length() > 0) sb.append("\n");
                 sb.append(lines[i]);
             }
             summaryText = sb.toString().trim();
         } else {
             summaryText = raw;
-            // Fallback: collect any hashtags from the whole response
             Matcher m = HASHTAG.matcher(raw);
             while (m.find()) {
                 String tag = m.group();
