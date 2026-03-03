@@ -5,8 +5,7 @@ spring:
   application:
     name: youtube-summary-service
 
-# Ollama (local LLM). Spring AI default is "mistral" — set model and pull it: ollama pull <model>
-# e.g. ollama pull llama3.2  or  ollama pull mistral
+# Ollama (local LLM). Install: https://ollama.ai — then: ollama pull granite3.2:8b
 spring.ai.ollama:
   base-url: http://localhost:11434
   chat:

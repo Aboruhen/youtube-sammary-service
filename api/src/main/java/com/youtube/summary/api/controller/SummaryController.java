@@ -57,9 +57,11 @@ public class SummaryController {
     private static List<Map<String, Object>> toAgendaDto(List<AgendaItem> items) {
         return items.stream()
                 .map(i -> Map.<String, Object>of(
-                        "timestamp", i.getTimestamp(),
+                        "title", i.getTitle(),
+                        "startTime", i.getStartTime(),
+                        "endTime", i.getEndTime(),
                         "startSeconds", i.getStartSeconds(),
-                        "title", i.getTitle()))
+                        "endSeconds", i.getEndSeconds()))
                 .toList();
     }
 }
