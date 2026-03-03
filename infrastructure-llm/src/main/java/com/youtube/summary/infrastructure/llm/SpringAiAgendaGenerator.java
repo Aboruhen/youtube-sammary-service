@@ -9,11 +9,9 @@ import org.springframework.ai.chat.client.ChatClient;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
- * Agenda generator using Spring AI. Asks LLM for "MM:SS - Title" lines and parses them.
+ * Agenda generator using Spring AI. Asks LLM for topic titles only; timings are approximated from video duration.
  */
 public class SpringAiAgendaGenerator implements AgendaGenerator {
 
@@ -33,10 +31,8 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
             - Keep titles concise but descriptive (roughly 3-8 words). No intro, no numbering prefix.
             """;
 
-    /** Matches "M:SS - Title" or "M:S - Title"; flexible separators (dash, en-dash, em-dash, colon). */
-    private static final Pattern LINE_PATTERN = Pattern.compile("(\\d+):(\\d{1,2})\\s*[-–—:\\s]+\\s*(.+)");
-    /** Strip leading list style: "1. ", "1) ", "- ", "* " */
-    private static final Pattern LEADING_PREFIX = Pattern.compile("^\\s*(?:\\d+[.)]\\s*|[-*]\\s*)");
+    /** Strip leading list style: "1. ", "1) ", "- ", "* ", or "M:SS - " (timestamp prefix). */
+    private static final String LEADING_PREFIX_REGEX = "^\\s*(?:\\d+[.)]\\s*|[-*]\\s*|\\d{1,5}:\\d{1,2}(?::\\d{1,2})?\\s*[-–—:\\s]*)";
 
     private final ChatClient chatClient;
 
@@ -63,14 +59,12 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
                 .call()
                 .content();
         String raw = response != null ? stripMarkdownCodeBlocks(response.trim()) : "";
-        List<AgendaItem> items = parseAgendaLines(raw);
-        if (items.isEmpty() && !transcript.getSegments().isEmpty()) {
-            items = fallbackAgendaFromSegments(transcript);
-        } else if (!items.isEmpty()) {
-            items = mergeCloseItems(items, 45.0); // merge entries within 45 seconds
+        List<String> topics = parseTopicLines(raw);
+        if (topics.isEmpty()) {
+            return new Agenda(transcript.getVideoId(), List.of());
         }
         double videoEndSeconds = getVideoEndSeconds(transcript);
-        items = assignEndTimes(items, videoEndSeconds);
+        List<AgendaItem> items = approximateTimings(topics, videoEndSeconds);
         return new Agenda(transcript.getVideoId(), items);
     }
 
@@ -80,36 +74,34 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
         return last.getEndSeconds();
     }
 
-    /** Set each item's end time to the next item's start, or video end for the last item. */
-    private static List<AgendaItem> assignEndTimes(List<AgendaItem> items, double videoEndSeconds) {
-        if (items.isEmpty()) return items;
-        List<AgendaItem> result = new ArrayList<>(items.size());
-        for (int i = 0; i < items.size(); i++) {
-            AgendaItem item = items.get(i);
-            double end = (i + 1 < items.size())
-                    ? items.get(i + 1).getStartSeconds()
-                    : Math.max(item.getStartSeconds(), videoEndSeconds);
-            result.add(new AgendaItem(item.getTitle(), item.getStartSeconds(), end));
+    /** Parse response into topic titles only (ignore any timestamps in the line; we approximate later). */
+    private static List<String> parseTopicLines(String response) {
+        if (response == null || response.isBlank()) return List.of();
+        List<String> topics = new ArrayList<>();
+        for (String line : response.split("\\r?\\n")) {
+            String stripped = line.replaceFirst(LEADING_PREFIX_REGEX, "").trim();
+            if (stripped.isEmpty()) continue;
+            // Take the rest of the line as title (in case AI still outputs "M:SS - Title", we take Title)
+            String title = stripped;
+            if (title.isEmpty()) title = "Topic";
+            topics.add(title);
         }
-        return result;
+        return topics;
     }
 
-    /** Merge agenda items that are very close in time; keep first timestamp, prefer first title. */
-    private static List<AgendaItem> mergeCloseItems(List<AgendaItem> items, double minGapSeconds) {
-        if (items.size() <= 1) return items;
-        List<AgendaItem> merged = new ArrayList<>();
-        AgendaItem current = items.get(0);
-        for (int i = 1; i < items.size(); i++) {
-            AgendaItem next = items.get(i);
-            if (next.getStartSeconds() - current.getStartSeconds() < minGapSeconds) {
-                // Merge: keep current start, use current title (section start)
-                continue;
-            }
-            merged.add(current);
-            current = next;
+    /** Assign approximate start/end times by splitting video duration evenly across topics. */
+    private static List<AgendaItem> approximateTimings(List<String> topics, double videoEndSeconds) {
+        if (topics.isEmpty() || videoEndSeconds <= 0) return List.of();
+        int n = topics.size();
+        double segmentDuration = videoEndSeconds / n;
+        List<AgendaItem> items = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            double start = i * segmentDuration;
+            double end = (i + 1) * segmentDuration;
+            if (i == n - 1) end = videoEndSeconds;
+            items.add(new AgendaItem(topics.get(i), start, end));
         }
-        merged.add(current);
-        return merged;
+        return items;
     }
 
     private static String buildTranscriptWithTimings(Transcript transcript) {
@@ -140,54 +132,5 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
             }
         }
         return s;
-    }
-
-    static List<AgendaItem> parseAgendaLines(String response) {
-        if (response == null || response.isBlank()) {
-            return List.of();
-        }
-        List<AgendaItem> items = new ArrayList<>();
-        for (String line : response.split("\\r?\\n")) {
-            line = LEADING_PREFIX.matcher(line.trim()).replaceFirst("");
-            line = line.trim();
-            if (line.isEmpty()) continue;
-            Matcher m = LINE_PATTERN.matcher(line);
-            if (m.matches()) {
-                int minutes = Integer.parseInt(m.group(1));
-                int seconds = Integer.parseInt(m.group(2));
-                if (seconds > 59) continue;
-                String title = m.group(3).trim();
-                if (title.isEmpty()) title = "Topic";
-                double startSeconds = minutes * 60.0 + seconds;
-                items.add(new AgendaItem(title, startSeconds));
-            }
-        }
-        return items;
-    }
-
-    /** English-only fallback titles when LLM returns nothing (segment text may be in any language). */
-    private static final String[] FALLBACK_ENGLISH_TITLES = {
-            "Introduction", "Overview", "Main content", "Key points", "Details and examples",
-            "Implementation", "Summary", "Conclusion"
-    };
-
-    /** Build agenda from segments when LLM returns nothing; use English titles only. */
-    private static List<AgendaItem> fallbackAgendaFromSegments(Transcript transcript) {
-        if (transcript.getSegments().isEmpty()) return List.of();
-        List<TranscriptSegment> segs = transcript.getSegments();
-        double windowSeconds = 120.0; // ~2 min per section
-        double videoEnd = segs.get(segs.size() - 1).getEndSeconds();
-        List<AgendaItem> items = new ArrayList<>();
-        double windowStart = -windowSeconds - 1;
-        for (TranscriptSegment seg : segs) {
-            double start = seg.getStartSeconds();
-            if (start >= windowStart + windowSeconds || items.isEmpty()) {
-                windowStart = start;
-                String title = FALLBACK_ENGLISH_TITLES[items.size() % FALLBACK_ENGLISH_TITLES.length];
-                double end = Math.max(start, videoEnd);
-                items.add(new AgendaItem(title, start, end));
-            }
-        }
-        return assignEndTimes(items, videoEnd);
     }
 }
