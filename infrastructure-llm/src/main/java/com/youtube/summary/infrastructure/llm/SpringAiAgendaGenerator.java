@@ -18,14 +18,16 @@ import java.util.regex.Pattern;
 public class SpringAiAgendaGenerator implements AgendaGenerator {
 
     private static final String SYSTEM_PROMPT = """
+            MANDATORY: All section titles MUST be in English. If the transcript is in another language, translate \
+            every section title into English. Never output titles in any other language.
             You are an agenda generator. The transcript includes timestamps like [0:00] [1:30].
             Your job: group the content by context into logical sections (e.g. Introduction, Setup, Main topic 1, Demo, Conclusion).
             Output ONLY lines in this format: M:SS - Section title
             Rules:
             - Group by context: one line per logical section, not every small subtopic. Typical video = 5-15 sections.
             - Use the start timestamp of each section from the transcript [M:SS]. Pick the timestamp where that section begins.
-            - Section titles should be clear and high-level (e.g. "Introduction", "Configuring the API", "Testing and deployment").
-            - Titles in English. No other text, no intro, no numbering prefix.
+            - Section titles must be in English only (translate if needed). Clear and high-level (e.g. "Introduction", "Configuring the API").
+            - No other text, no intro, no numbering prefix.
             """;
 
     /** Matches "M:SS - Title" or "M:S - Title"; flexible separators (dash, en-dash, em-dash, colon). */
@@ -47,8 +49,9 @@ public class SpringAiAgendaGenerator implements AgendaGenerator {
         }
         String transcriptWithTimings = buildTranscriptWithTimings(transcript);
         String truncated = transcriptWithTimings.length() > 15000 ? transcriptWithTimings.substring(0, 15000) + "..." : transcriptWithTimings;
-        String userPrompt = "Group this transcript into logical sections by context. For each section output one line: M:SS - Section title. " +
-                "Use timestamps from the brackets [M:SS] in the transcript. Aim for 5-15 sections total; group related content together. " +
+        String userPrompt = "Output the agenda in English only (translate all section titles to English if the transcript is not in English). " +
+                "Group this transcript into logical sections by context. For each section output one line: M:SS - Section title. " +
+                "Use timestamps from the brackets [M:SS]. Aim for 5-15 sections. " +
                 "Example: 0:00 - Introduction\n2:30 - Project setup\n5:00 - API design and implementation\n\nTranscript:\n\n" + truncated;
         String response = chatClient.prompt()
                 .system(SYSTEM_PROMPT)
